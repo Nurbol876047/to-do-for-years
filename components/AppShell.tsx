@@ -9,7 +9,16 @@ import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { SIDEBAR_BREAKPOINT, useColors, type Palette } from "@/lib/theme";
 
 interface NavItem {
-  href: "/week" | "/today" | "/inbox" | "/schedule" | "/review" | "/calendar" | "/finance" | "/chat";
+  href:
+    | "/week"
+    | "/today"
+    | "/inbox"
+    | "/schedule"
+    | "/review"
+    | "/calendar"
+    | "/finance"
+    | "/chat"
+    | "/diary";
   label: string;
 }
 
@@ -22,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/calendar", label: "Календарь" },
   { href: "/finance", label: "Финансы" },
   { href: "/chat", label: "Чат" },
+  { href: "/diary", label: "Дневник" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {

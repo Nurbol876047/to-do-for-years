@@ -1,0 +1,63 @@
+services:
+  - name: notebook-web
+    type: web
+    runtime: static
+    buildCommand: npm ci && npx expo export -p web
+    staticPublishPath: ./dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Зависимости ставим сами через npm ci (по лок-файлу),
+      # иначе Render поставит их ещё раз своим npm install.
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
+      # EXPO_PUBLIC_* инлайнятся в бандл на этапе сборки и видны всем.
+      # Сюда класть можно только то, что не стыдно опубликовать.
+      # Anon-ключ Supabase публичный по задумке — доступ режет RLS.
+      - key: EXPO_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      # EXPO_PUBLIC_DEV_SKIP_LOGIN здесь быть не должно:
+      # он пропускает экран входа всем подряд.
+      # EXPO_PUBLIC_OPENAI_API_KEY тоже: ключ утечёт в бандл.
+    routes:
+      # web.output = "static": каждый роут собирается в свой файл,
+      # dist/week.html и т.д. Запрос приходит на /week — без правила
+      # Render такой файл не найдёт, поэтому сопоставляем явно.
+      - type: rewrite
+        source: /week
+        destination: /week.html
+      - type: rewrite
+        source: /today
+        destination: /today.html
+      - type: rewrite
+        source: /diary
+        destination: /diary.html
+      - type: rewrite
+        source: /inbox
+        destination: /inbox.html
+      - type: rewrite
+        source: /calendar
+        destination: /calendar.html
+      - type: rewrite
+        source: /schedule
+        destination: /schedule.html
+      - type: rewrite
+        source: /review
+        destination: /review.html
+      - type: rewrite
+        source: /finance
+        destination: /finance.html
+      - type: rewrite
+        source: /chat
+        destination: /chat.html
+      - type: rewrite
+        source: /login
+        destination: /login.html
+      # Фолбэк на SPA для всего остального. Правила не применяются,
+      # если файл по пути существует, поэтому ассеты из _expo/
+      # отдаются как есть.
+      - type: rewrite
+        source: /*
+        destination: /index.html
