@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import {
@@ -18,14 +18,19 @@ import {
 } from "@/lib/api";
 import { BlockForm } from "@/components/BlockForm";
 import { TaskForm } from "@/components/TaskForm";
+import { NowLine } from "@/components/NowLine";
 import { TaskRow } from "@/components/TaskRow";
 import {
   blocksForDate,
   busyMinutes,
   dayItems,
   dayRows,
+  nowLineIndex,
+  rowPhase,
+  rowRange,
   splitBlockTitle,
   type DayItem,
+  type DayRow,
   type FreeSlot,
 } from "@/lib/blocks";
 import {
@@ -35,20 +40,27 @@ import {
   isoWeekday,
   minutesToTime,
   timeToMinutes,
-  todayInAlmaty,
   weekStartOf,
 } from "@/lib/date";
 import { qk } from "@/lib/queryKeys";
 import { useDayWindow } from "@/lib/useDayWindow";
+import { useNow } from "@/lib/useNow";
 import { supabase } from "@/lib/supabase";
 import { goalColor, useColors, type Palette } from "@/lib/theme";
 import type { BlockFormValue, Task, TaskFormValue } from "@/lib/types";
+
+/** Ключ строки: у блоков — id, у свободных окон — время начала. */
+function rowKey(row: DayRow): string {
+  return row.type === "free" ? `free-${row.slot.start_time}` : `${row.item.kind}-${row.item.id}`;
+}
 
 export default function TodayScreen() {
   const colors = useColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const dateKey = todayInAlmaty();
+  // Тикает раз в минуту: двигает отметку «сейчас» и сам открывает
+  // следующий день в полночь, не дожидаясь перезагрузки.
+  const { dateKey, minutes: nowMinutes } = useNow();
   const weekStart = weekStartOf(dateKey);
   const weekday = isoWeekday(dateKey);
   const queryClient = useQueryClient();
@@ -81,6 +93,7 @@ export default function TodayScreen() {
   const dayTasks = tasks ?? [];
   const items = dayItems(blocksForDate(blocks ?? [], dateKey), events ?? []);
   const rows = dayRows(items, dayWindow);
+  const lineIndex = nowLineIndex(rows, nowMinutes);
   const mainTask = dayTasks.find((t) => t.is_main) ?? null;
   const doneCount = dayTasks.filter((t) => t.done).length;
 
@@ -210,44 +223,57 @@ export default function TodayScreen() {
               <Text style={styles.cardMeta}>занято {formatDuration(busyMinutes(items))}</Text>
             </View>
 
-            {rows.map((row) => {
-              if (row.type === "free") {
-                const { slot } = row;
-                return (
-                  <Pressable
-                    key={`free-${slot.start_time}`}
-                    style={styles.itemRow}
-                    onPress={() => openBlock(null, slot)}
-                  >
-                    <View style={styles.freeBar} />
-                    <View style={styles.itemBody}>
-                      <Text style={styles.freeTime}>
-                        {formatTime(slot.start_time)}–{formatTime(slot.end_time)}
-                      </Text>
-                      <Text style={styles.freeLabel}>Свободно · {formatDuration(slot.minutes)}</Text>
-                    </View>
-                  </Pressable>
-                );
-              }
+            {rows.map((row, index) => {
+              const phase = rowPhase(row, nowMinutes);
+              const left = phase === "now" ? rowRange(row).end - nowMinutes : 0;
+              const title = row.type === "item" ? splitBlockTitle(row.item.title) : null;
 
-              const { item } = row;
-              const { name, details } = splitBlockTitle(item.title);
               return (
-                <Pressable key={`${item.kind}-${item.id}`} style={styles.itemRow} onPress={() => openBlock(item)}>
-                  <View style={[styles.itemBar, { backgroundColor: item.color }]} />
-                  <View style={styles.itemBody}>
-                    <View style={styles.itemTimeRow}>
-                      <Text style={styles.itemTime}>
-                        {formatTime(item.start_time)}–{formatTime(item.end_time)}
-                      </Text>
-                      {item.kind === "event" ? <Text style={styles.oneOffBadge}>вне плана</Text> : null}
-                    </View>
-                    <Text style={styles.itemName}>{name}</Text>
-                    {details ? <Text style={styles.itemDetails}>{details}</Text> : null}
-                  </View>
-                </Pressable>
+                <Fragment key={rowKey(row)}>
+                  {lineIndex === index ? <NowLine minutes={nowMinutes} /> : null}
+                  {row.type === "free" ? (
+                    <Pressable
+                      style={[styles.itemRow, phase === "past" && styles.rowPast]}
+                      onPress={() => openBlock(null, row.slot)}
+                    >
+                      <View style={styles.freeBar} />
+                      <View style={styles.itemBody}>
+                        <Text style={styles.freeTime}>
+                          {formatTime(row.slot.start_time)}–{formatTime(row.slot.end_time)}
+                        </Text>
+                        <Text style={[styles.freeLabel, phase === "now" && styles.nowText]}>
+                          Свободно · {formatDuration(row.slot.minutes)}
+                          {phase === "now" ? ` · ещё ${formatDuration(left)}` : ""}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={[styles.itemRow, phase === "past" && styles.rowPast, phase === "now" && styles.rowNow]}
+                      onPress={() => openBlock(row.item)}
+                    >
+                      <View style={[styles.itemBar, { backgroundColor: row.item.color }]} />
+                      <View style={styles.itemBody}>
+                        <View style={styles.itemTimeRow}>
+                          <Text style={styles.itemTime}>
+                            {formatTime(row.item.start_time)}–{formatTime(row.item.end_time)}
+                          </Text>
+                          {phase === "now" ? <Text style={styles.nowBadge}>сейчас</Text> : null}
+                          {row.item.kind === "event" ? <Text style={styles.oneOffBadge}>вне плана</Text> : null}
+                        </View>
+                        <Text style={styles.itemName}>{title!.name}</Text>
+                        {title!.details ? <Text style={styles.itemDetails}>{title!.details}</Text> : null}
+                        {phase === "now" ? (
+                          <Text style={styles.nowText}>осталось {formatDuration(left)}</Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  )}
+                </Fragment>
               );
             })}
+
+            {lineIndex === rows.length ? <NowLine minutes={nowMinutes} /> : null}
 
             <Pressable style={styles.dashedButton} onPress={() => openBlock(null)}>
               <Text style={styles.dashedButtonText}>+ блок</Text>
@@ -415,6 +441,35 @@ const createStyles = (colors: Palette) =>
   itemRow: {
     flexDirection: "row",
     gap: 8,
+  },
+  rowPast: {
+    opacity: 0.45,
+  },
+  rowNow: {
+    backgroundColor: colors.accentMuted,
+    borderRadius: 8,
+    // Фон втянут за границы карточки, чтобы текст остался на одной
+    // вертикали с остальными строками.
+    marginHorizontal: -6,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+  },
+  nowBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    backgroundColor: colors.danger,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  nowText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: colors.danger,
+    fontVariant: ["tabular-nums"],
   },
   itemBar: {
     width: 3,

@@ -124,3 +124,42 @@ export function dayRows(items: DayItem[], window: DayWindow = DAY_WINDOW): DayRo
     return at - bt;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Отметка «сейчас»
+// ---------------------------------------------------------------------------
+
+/** Строка дня уже прошла, идёт прямо сейчас или ещё впереди. */
+export type RowPhase = "past" | "now" | "future";
+
+/** Границы строки в минутах от начала суток. */
+export function rowRange(row: DayRow): { start: number; end: number } {
+  const source = row.type === "item" ? row.item : row.slot;
+  return { start: timeToMinutes(source.start_time), end: timeToMinutes(source.end_time) };
+}
+
+export function rowPhase(row: DayRow, nowMinutes: number): RowPhase {
+  const { start, end } = rowRange(row);
+  if (nowMinutes >= end) return "past";
+  if (nowMinutes >= start) return "now";
+  return "future";
+}
+
+/**
+ * Куда вставить черту «сейчас» — индекс строки, перед которой она идёт
+ * (rows.length — в самый низ). null, когда минута попала внутрь строки:
+ * там отметку несёт сама строка, отдельная черта только дублировала бы её.
+ *
+ * Строки отсортированы по началу, поэтому после первой будущей строки
+ * текущей уже не встретится.
+ */
+export function nowLineIndex(rows: DayRow[], nowMinutes: number): number | null {
+  let index = 0;
+  for (const row of rows) {
+    const phase = rowPhase(row, nowMinutes);
+    if (phase === "now") return null;
+    if (phase === "future") break;
+    index += 1;
+  }
+  return index;
+}

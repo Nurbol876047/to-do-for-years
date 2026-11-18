@@ -105,6 +105,29 @@ export function formatTime(time: string): string {
   return time.slice(0, 5);
 }
 
+/** Текущие минуты от начала суток в Asia/Almaty. */
+export function almatyMinutesOfDay(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ALMATY_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") map[part.type] = part.value;
+  }
+
+  // h23 даёт 00..23, но на полночь часть движков отдаёт 24 — приводим к нулю.
+  return (Number(map.hour) % 24) * 60 + Number(map.minute);
+}
+
+/** Минуты от начала суток -> "HH:MM" для подписи. */
+export function formatMinutes(minutes: number): string {
+  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+}
+
 /** Минуты от начала суток -> "HH:MM:SS". */
 export function minutesToTime(minutes: number): string {
   return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}:00`;

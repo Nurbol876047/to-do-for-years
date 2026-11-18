@@ -1,21 +1,31 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import {
   busyMinutes,
   DAY_WINDOW,
   dayRows,
+  nowLineIndex,
+  rowPhase,
+  rowRange,
   splitBlockTitle,
   type DayItem,
+  type DayRow,
   type DayWindow,
   type FreeSlot,
 } from "@/lib/blocks";
 import { formatDayLabel, formatDuration, formatTime } from "@/lib/date";
+import { NowLine } from "@/components/NowLine";
 import { TaskRow } from "@/components/TaskRow";
 import { useColors, type Palette } from "@/lib/theme";
 import type { Goal, Task } from "@/lib/types";
 
 const OVERLOAD_MINUTES = 8 * 60;
+
+/** Ключ строки: у блоков — id, у свободных окон — время начала. */
+function rowKey(row: DayRow): string {
+  return row.type === "free" ? `free-${row.slot.start_time}` : `${row.item.kind}-${row.item.id}`;
+}
 
 interface Props {
   dateKey: string;
@@ -29,6 +39,11 @@ interface Props {
   goals: Goal[];
   /** Границы дня из настроек — внутри них считается свободное время. */
   dayWindow?: DayWindow;
+  /**
+   * Текущая минута от начала суток — только для сегодняшней колонки.
+   * null в остальные дни: там отмечать нечего.
+   */
+  nowMinutes?: number | null;
   onToggleTask: (id: string, done: boolean) => void;
   onAddTask: (title: string) => void;
   onEditTask: (task: Task) => void;
@@ -45,6 +60,7 @@ export function WeekDayCard({
   tasks,
   goals,
   dayWindow = DAY_WINDOW,
+  nowMinutes = null,
   onToggleTask,
   onAddTask,
   onEditTask,
@@ -59,6 +75,10 @@ export function WeekDayCard({
   const isOverloaded = busyMinutes(items) > OVERLOAD_MINUTES;
   const doneCount = tasks.filter((t) => t.done).length;
   const rows = dayRows(items, dayWindow);
+
+  // Черта «сейчас» нужна, только когда минута попала между строками:
+  // внутри блока отметку несёт сам блок.
+  const lineIndex = nowMinutes === null ? null : nowLineIndex(rows, nowMinutes);
 
   function handleSubmit() {
     const title = draft.trim();
@@ -82,37 +102,56 @@ export function WeekDayCard({
         </View>
       </View>
 
-      {rows.map((row) => {
-        if (row.type === "free") {
-          const { slot } = row;
-          return (
-            <Pressable key={`free-${slot.start_time}`} style={styles.blockRow} onPress={() => onAddBlock(slot)}>
-              <View style={styles.freeBar} />
-              <Text style={styles.freeText}>
-                {formatTime(slot.start_time)}–{formatTime(slot.end_time)} · свободно {formatDuration(slot.minutes)}
-              </Text>
-            </Pressable>
-          );
-        }
+      {rows.map((row, index) => {
+        const phase = nowMinutes === null ? "future" : rowPhase(row, nowMinutes);
+        // nowMinutes здесь уже не null: индекс считается только вместе с ним.
+        const left = phase === "now" ? rowRange(row).end - nowMinutes! : 0;
+        const title = row.type === "item" ? splitBlockTitle(row.item.title) : null;
 
-        const { item } = row;
-        const { name, details } = splitBlockTitle(item.title);
         return (
-          <Pressable key={`${item.kind}-${item.id}`} style={styles.blockRow} onPress={() => onEditItem(item)}>
-            <View style={[styles.blockBar, { backgroundColor: item.color }]} />
-            <View style={styles.blockBody}>
-              <View style={styles.blockTimeRow}>
-                <Text style={styles.blockTime}>
-                  {formatTime(item.start_time)}–{formatTime(item.end_time)}
+          <Fragment key={rowKey(row)}>
+            {lineIndex === index && nowMinutes !== null ? (
+              <NowLine minutes={nowMinutes} compact={compact} />
+            ) : null}
+            {row.type === "free" ? (
+              <Pressable
+                style={[styles.blockRow, phase === "past" && styles.rowPast]}
+                onPress={() => onAddBlock(row.slot)}
+              >
+                <View style={styles.freeBar} />
+                <Text style={[styles.freeText, phase === "now" && styles.freeTextNow]}>
+                  {formatTime(row.slot.start_time)}–{formatTime(row.slot.end_time)} · свободно{" "}
+                  {formatDuration(row.slot.minutes)}
+                  {phase === "now" ? ` · ещё ${formatDuration(left)}` : ""}
                 </Text>
-                {item.kind === "event" ? <Text style={styles.oneOffBadge}>вне плана</Text> : null}
-              </View>
-              <Text style={[styles.blockName, compact && styles.blockNameCompact]}>{name}</Text>
-              {details ? <Text style={styles.blockDetails}>{details}</Text> : null}
-            </View>
-          </Pressable>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.blockRow, phase === "past" && styles.rowPast, phase === "now" && styles.rowNow]}
+                onPress={() => onEditItem(row.item)}
+              >
+                <View style={[styles.blockBar, { backgroundColor: row.item.color }]} />
+                <View style={styles.blockBody}>
+                  <View style={styles.blockTimeRow}>
+                    <Text style={styles.blockTime}>
+                      {formatTime(row.item.start_time)}–{formatTime(row.item.end_time)}
+                    </Text>
+                    {phase === "now" ? <Text style={styles.nowBadge}>сейчас</Text> : null}
+                    {row.item.kind === "event" ? <Text style={styles.oneOffBadge}>вне плана</Text> : null}
+                  </View>
+                  <Text style={[styles.blockName, compact && styles.blockNameCompact]}>{title!.name}</Text>
+                  {title!.details ? <Text style={styles.blockDetails}>{title!.details}</Text> : null}
+                  {phase === "now" ? <Text style={styles.leftText}>осталось {formatDuration(left)}</Text> : null}
+                </View>
+              </Pressable>
+            )}
+          </Fragment>
         );
       })}
+
+      {lineIndex === rows.length && nowMinutes !== null ? (
+        <NowLine minutes={nowMinutes} compact={compact} />
+      ) : null}
 
       <Pressable style={styles.addBlockButton} onPress={() => onAddBlock()}>
         <Text style={styles.addBlockButtonText}>+ блок</Text>
@@ -209,6 +248,35 @@ const createStyles = (colors: Palette) =>
     flexDirection: "row",
     gap: 8,
   },
+  rowPast: {
+    opacity: 0.45,
+  },
+  rowNow: {
+    backgroundColor: colors.accentMuted,
+    borderRadius: 8,
+    // Втягиваем фон за границы колонки, чтобы текст остался на одной
+    // вертикали с остальными строками.
+    marginHorizontal: -6,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+  },
+  nowBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    backgroundColor: colors.danger,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  leftText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: colors.danger,
+    fontVariant: ["tabular-nums"],
+  },
   blockBar: {
     width: 3,
     borderRadius: 2,
@@ -223,6 +291,10 @@ const createStyles = (colors: Palette) =>
     lineHeight: 18,
     color: colors.textFaint,
     fontVariant: ["tabular-nums"],
+  },
+  freeTextNow: {
+    color: colors.danger,
+    fontWeight: "600",
   },
   blockBody: {
     flex: 1,

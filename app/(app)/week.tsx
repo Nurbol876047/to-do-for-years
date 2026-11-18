@@ -33,12 +33,12 @@ import {
   isoWeekday,
   minutesToTime,
   timeToMinutes,
-  todayInAlmaty,
   weekDates,
   weekStartOf,
 } from "@/lib/date";
 import { qk } from "@/lib/queryKeys";
 import { useDayWindow } from "@/lib/useDayWindow";
+import { useNow } from "@/lib/useNow";
 import { supabase } from "@/lib/supabase";
 import { useColors, type Palette } from "@/lib/theme";
 import type { Task, Weekday } from "@/lib/types";
@@ -62,7 +62,9 @@ export default function WeekScreen() {
 
   const dates = weekDates(weekStart);
   const weekEnd = dates[6];
-  const todayKey = todayInAlmaty();
+  // Тикает раз в минуту: двигает отметку «сейчас» и сам переводит
+  // «сегодня» на следующий день в полночь.
+  const { dateKey: todayKey, minutes: nowMinutes } = useNow();
 
   const { data: week } = useQuery({
     queryKey: qk.week(weekStart),
@@ -254,6 +256,7 @@ export default function WeekScreen() {
                 <WeekDayCard
                   dateKey={dateKey}
                   isToday={dateKey === todayKey}
+                  nowMinutes={dateKey === todayKey ? nowMinutes : null}
                   compact={fitAllDays}
                   items={items}
                   tasks={dayTasks}
