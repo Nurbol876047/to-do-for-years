@@ -165,8 +165,8 @@ npx expo export -p web`, результат — статика в `dist/`.
 
 Всё, что начинается с `EXPO_PUBLIC_`, попадает прямо в бандл и видно любому
 посетителю. `anon`-ключ такой по задумке — доступ режет RLS. А вот
-`EXPO_PUBLIC_DEV_SKIP_LOGIN` и `EXPO_PUBLIC_OPENAI_API_KEY` на Render класть нельзя:
-первый пускает в приложение кого угодно, второй утечёт вместе с бандлом.
+`EXPO_PUBLIC_DEV_SKIP_LOGIN` на Render класть нельзя — пускает в приложение
+кого угодно. Ключ OpenAI в бандл не попадает вообще — см. «Ключ OpenAI» ниже.
 
 После того как сайт поднялся, в облачном Supabase нужно разрешить ему вход
 (Authentication → URL Configuration): **Site URL** — адрес сайта, в **Redirect URLs** —
@@ -294,14 +294,27 @@ supabase/migrations/        схема БД + RLS, события, настро�
 
 ### Ключ OpenAI
 
+Запрос к OpenAI идёт не из приложения напрямую, а через Supabase Edge Function
+[`openai-proxy`](./supabase/functions/openai-proxy/index.ts) — ключ хранится
+только на сервере (секрет, не переменная `EXPO_PUBLIC_*`) и в бандл не попадает.
+Вызвать функцию может только залогиненный пользователь приложения: Supabase
+проверяет JWT ещё на шлюзе, раньше кода функции.
+
 ```
-EXPO_PUBLIC_OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
 EXPO_PUBLIC_OPENAI_MODEL=gpt-4o-mini
 ```
 
-⚠️ Любая переменная `EXPO_PUBLIC_*` попадает в бандл приложения — ключ сможет
-достать каждый, у кого есть сборка. Так можно **только для локальной проверки**.
-Перед тем как отдавать приложение кому-то, запрос нужно унести на сервер
-(Supabase Edge Function) и ходить туда: в коде меняются только адрес и заголовок
-в `lib/ai/statement.ts` и `lib/ai/chat.ts`. После проверки ключ стоит отозвать в
-панели OpenAI и выпустить новый.
+`OPENAI_API_KEY` — без префикса `EXPO_PUBLIC_`. Локально кладётся в корневой
+`.env`, его подхватывает `supabase/config.toml` (`[edge_runtime.secrets]`) при
+`supabase start`. `EXPO_PUBLIC_OPENAI_MODEL` не секрет (просто название модели),
+его видно всем, и это нормально.
+
+На облачном Supabase секрет задаётся отдельно и на Render вообще не нужен:
+
+```bash
+npx supabase secrets set OPENAI_API_KEY=sk-... --project-ref <project-ref>
+npx supabase functions deploy openai-proxy --project-ref <project-ref>
+```
+
+Повторять `functions deploy` нужно после любого изменения кода функции.

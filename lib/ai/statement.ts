@@ -1,17 +1,12 @@
 // Разбор банковской выписки (PDF) моделью OpenAI.
-//
-// ВНИМАНИЕ ПРО КЛЮЧ: всё, что начинается с EXPO_PUBLIC_, попадает в бандл
-// приложения — ключ увидит любой, у кого есть сборка. Так можно только для
-// локальной проверки. Для настоящей работы запрос должен уходить с сервера
-// (Supabase Edge Function), а приложение — ходить к нему; тогда поменяется
-// только адрес и заголовок в analyseStatement() ниже.
+// Запрос уходит через supabase/functions/openai-proxy — ключ OpenAI остаётся
+// на сервере и не попадает в бандл приложения.
 
+import { proxyErrorMessage } from "@/lib/ai/proxy";
+import { supabase } from "@/lib/supabase";
 import type { TransactionDirection } from "@/lib/types";
 
-const API_URL = "https://api.openai.com/v1/responses";
 const MODEL = process.env.EXPO_PUBLIC_OPENAI_MODEL ?? "gpt-4o-mini";
-
-export const AI_KEY_SET = Boolean(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
 
 export interface ParsedTransaction {
   date: string; // YYYY-MM-DD
@@ -93,16 +88,8 @@ function parseJson(text: string): StatementAnalysis {
 
 /** Отправляет PDF целиком: модель сама читает и текст, и таблицы. */
 export async function analyseStatement(fileName: string, base64: string): Promise<StatementAnalysis> {
-  const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!key) throw new Error("Ключ OpenAI не задан: EXPO_PUBLIC_OPENAI_API_KEY в .env");
-
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
+  const { data, error } = await supabase.functions.invoke("openai-proxy", {
+    body: {
       model: MODEL,
       input: [
         {
@@ -113,13 +100,10 @@ export async function analyseStatement(fileName: string, base64: string): Promis
           ],
         },
       ],
-    }),
+    },
   });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`OpenAI ${response.status}: ${body.slice(0, 300)}`);
-  }
+  if (error) throw new Error(await proxyErrorMessage(error));
 
-  return parseJson(outputText(await response.json()));
+  return parseJson(outputText(data));
 }

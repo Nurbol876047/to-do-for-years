@@ -338,7 +338,7 @@ max_frequency = "5s"
 # В Google Cloud в Authorized redirect URIs нужен http://127.0.0.1:54321/auth/v1/callback.
 # После правки этого файла: npx supabase stop && npx supabase start.
 [auth.external.google]
-enabled = false
+enabled = true
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 # Относится только ко входу по готовому id_token (signInWithIdToken) —
@@ -412,8 +412,8 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+[edge_runtime.secrets]
+OPENAI_API_KEY = "env(OPENAI_API_KEY)"
 
 [analytics]
 enabled = true

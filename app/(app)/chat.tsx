@@ -24,7 +24,6 @@ import {
 } from "@/lib/api";
 import { askAssistant, type ChatMessage } from "@/lib/ai/chat";
 import { buildSnapshot } from "@/lib/ai/snapshot";
-import { AI_KEY_SET } from "@/lib/ai/statement";
 import {
   addDaysToKey,
   currentWeekStart,
@@ -188,7 +187,7 @@ export default function ChatScreen() {
           <View style={styles.starters}>
             <Text style={styles.startersTitle}>С чего начать</Text>
             {STARTERS.map((text) => (
-              <Pressable key={text} style={styles.starter} onPress={() => send(text)} disabled={!AI_KEY_SET}>
+              <Pressable key={text} style={styles.starter} onPress={() => send(text)}>
                 <Text style={styles.starterText}>{text}</Text>
               </Pressable>
             ))}
@@ -208,10 +207,6 @@ export default function ChatScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
 
-      {!AI_KEY_SET ? (
-        <Text style={styles.error}>Ключ OpenAI не задан: EXPO_PUBLIC_OPENAI_API_KEY в .env</Text>
-      ) : null}
-
       <View style={styles.composer}>
         <TextInput
           style={styles.input}
@@ -222,13 +217,12 @@ export default function ChatScreen() {
           onKeyPress={handleKeyPress}
           onSubmitEditing={() => send(question)}
           returnKeyType="send"
-          editable={AI_KEY_SET}
           multiline
           submitBehavior="submit"
         />
         <Pressable
-          style={[styles.sendButton, (askMutation.isPending || !AI_KEY_SET) && styles.sendButtonOff]}
-          disabled={askMutation.isPending || !AI_KEY_SET}
+          style={[styles.sendButton, askMutation.isPending && styles.sendButtonOff]}
+          disabled={askMutation.isPending}
           onPress={() => send(question)}
         >
           <Text style={styles.sendButtonText}>Отправить</Text>

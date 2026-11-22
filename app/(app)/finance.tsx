@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { createTransactions, deleteTransaction, listTransactionsForRange } from "@/lib/api";
-import { AI_KEY_SET, analyseStatement, type StatementAnalysis } from "@/lib/ai/statement";
+import { analyseStatement, type StatementAnalysis } from "@/lib/ai/statement";
 import { pickPdf } from "@/lib/ai/pickPdf";
 import { daysInMonth, formatDateKey, MONTH_LABELS, todayInAlmaty } from "@/lib/date";
 import { qk } from "@/lib/queryKeys";
@@ -199,13 +199,9 @@ export default function FinanceScreen() {
               модель может ошибиться в суммах и датах.
             </Text>
 
-            {!AI_KEY_SET ? (
-              <Text style={styles.error}>Ключ OpenAI не задан: EXPO_PUBLIC_OPENAI_API_KEY в .env</Text>
-            ) : null}
-
             <Pressable
               style={[styles.primaryButton, analyseMutation.isPending && styles.buttonBusy]}
-              disabled={analyseMutation.isPending || !AI_KEY_SET}
+              disabled={analyseMutation.isPending}
               onPress={() => analyseMutation.mutate()}
             >
               <Text style={styles.primaryButtonText}>

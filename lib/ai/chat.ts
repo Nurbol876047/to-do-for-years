@@ -1,9 +1,12 @@
 // Чат по планировщику. Перед вопросом модель получает снимок данных: тема и
 // цели недели, задачи, расписание, важные дни, заметки и деньги за месяц.
 // Поэтому отвечает про конкретные планы, а не вообще.
-// Про ключ — то же предупреждение, что в statement.ts: EXPO_PUBLIC_* виден всем.
+// Запрос уходит через supabase/functions/openai-proxy — ключ OpenAI остаётся
+// на сервере и не попадает в бандл приложения.
 
-const API_URL = "https://api.openai.com/v1/responses";
+import { proxyErrorMessage } from "@/lib/ai/proxy";
+import { supabase } from "@/lib/supabase";
+
 const MODEL = process.env.EXPO_PUBLIC_OPENAI_MODEL ?? "gpt-4o-mini";
 
 export interface ChatMessage {
@@ -39,9 +42,6 @@ function outputText(payload: unknown): string {
 
 /** `snapshot` — текст из lib/ai/snapshot.ts. */
 export async function askAssistant(history: ChatMessage[], snapshot: string): Promise<string> {
-  const key = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (!key) throw new Error("Ключ OpenAI не задан: EXPO_PUBLIC_OPENAI_API_KEY в .env");
-
   const input = [
     { role: "system", content: [{ type: "input_text", text: SYSTEM }] },
     { role: "user", content: [{ type: "input_text", text: `Мои данные сейчас:\n\n${snapshot}` }] },
@@ -55,18 +55,13 @@ export async function askAssistant(history: ChatMessage[], snapshot: string): Pr
     })),
   ];
 
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: MODEL, input }),
+  const { data, error } = await supabase.functions.invoke("openai-proxy", {
+    body: { model: MODEL, input },
   });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`OpenAI ${response.status}: ${body.slice(0, 300)}`);
-  }
+  if (error) throw new Error(await proxyErrorMessage(error));
 
-  const text = outputText(await response.json());
+  const text = outputText(data);
   if (!text) throw new Error("Пустой ответ модели");
   return text;
 }
