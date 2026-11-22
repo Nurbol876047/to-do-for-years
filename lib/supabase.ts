@@ -33,6 +33,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     storage: authStorage,
     autoRefreshToken: true,
     persistSession: true,
+    // Возврат от Google (`?code=...`) разбираем сами, в lib/auth/google.ts.
+    // Встроенный `detectSessionInUrl` делает то же самое, но про неудачный
+    // обмен молчит: человек видит пустую форму входа и код в адресе, без
+    // единого слова о причине. Плюс на серверном проходе Expo Router нет ни
+    // window, ни адресной строки — трогать их там нельзя.
     detectSessionInUrl: false,
+    // PKCE: Google возвращает одноразовый код вместо токенов в адресе,
+    // обмен идёт через exchangeCodeForSession — и на вебе, и на телефоне.
+    flowType: "pkce",
   },
 });

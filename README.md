@@ -17,7 +17,7 @@
    `0002_events.sql` — разовые блоки дня (`events`); `0003_user_settings.sql` — границы дня (`user_settings`);
    `0004_block_period.sql` — срок действия пары (`starts_on`/`ends_on`);
    `0005_day_marks.sql` — отметки важных дней (`day_marks`); `0006_note_lists.sql` — списки заметок.
-3. В Authentication → Providers включите **Email** (OTP-код на почту, без пароля). Если нужно сразу входить без подтверждения домена — можно оставить настройки по умолчанию.
+3. В Authentication → Providers включите **Email** и выключите **Confirm email**: вход идёт по email + паролю, писем приложение не шлёт. Подтверждение адреса здесь только мешает — встроенная почта Supabase отправляет письма лишь участникам проекта, остальные не смогли бы войти.
 4. Скопируйте Project URL и `anon` key: Project Settings → API.
 
 ### 2. Переменные окружения
@@ -50,16 +50,136 @@ npx expo start
 
 ### 4. Вход
 
-На экране входа введите email → придёт 6-значный код на почту → введите код. Сессия сохраняется (AsyncStorage на телефоне, localStorage в браузере).
+На экране входа — email и пароль. Нет аккаунта → вкладка «Регистрация»: аккаунт создаётся сразу,
+без письма с подтверждением (при условии, что в Supabase выключен **Confirm email**). Сессия
+сохраняется (AsyncStorage на телефоне, localStorage в браузере), выход — кнопка «Выйти» в шапке
+любого раздела.
+
+#### Вход через Google
+
+Кнопка «Войти через Google» на экране входа есть всегда. Пока провайдер не настроен,
+она честно пишет, что он выключен. Настройка разовая, в двух местах.
+
+**1. Google Cloud Console** → [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials)
+
+1. Create credentials → OAuth client ID → тип **Web application**.
+2. **Authorized JavaScript origins** — откуда открывается приложение:
+   `http://localhost:8081` для локальной разработки и адрес деплоя
+   `https://<ваш-сайт>.onrender.com`.
+3. **Authorized redirect URIs** — сюда Google возвращает пользователя. Это адрес
+   **Supabase**, а не вашего сайта:
+   - локально: `http://127.0.0.1:54321/auth/v1/callback`
+   - облако: `https://<project-ref>.supabase.co/auth/v1/callback`
+4. Скопируйте **Client ID** и **Client secret**.
+
+**2а. Локальный Supabase**
+
+Положите ключи в корневой `.env` (его читает Supabase CLI, в бандл приложения они
+не попадают — префикса `EXPO_PUBLIC_` у них нет):
+
+```
+SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=...
+SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=...
+```
+
+В [`supabase/config.toml`](./supabase/config.toml) в секции `[auth.external.google]`
+поставьте `enabled = true` и перезапустите базу — конфиг читается только при старте:
+
+```bash
+npx supabase stop && npx supabase start
+```
+
+**2б. Облачный Supabase**
+
+- Authentication → Providers → **Google**: включить, вставить Client ID и Client Secret.
+- Authentication → URL Configuration: **Site URL** — адрес деплоя, в **Redirect URLs**
+  добавить `https://<ваш-сайт>.onrender.com/**`. Без этого Supabase вернёт
+  пользователя не туда, и вход молча не сработает.
+
+**Как это устроено.** Везде один и тот же flow — PKCE (`flowType: "pkce"` в
+[`lib/supabase.ts`](./lib/supabase.ts)): Google возвращает одноразовый код, который
+[`lib/auth/google.ts`](./lib/auth/google.ts) меняет на сессию через
+`exchangeCodeForSession`.
+
+- В браузере страница уходит на Google и возвращается на `/login?code=...`. Код
+  разбирает `completeGoogleRedirect` при загрузке экрана входа, после чего чистит
+  адресную строку. Встроенный в supabase-js `detectSessionInUrl` специально
+  выключен: он делает то же самое, но про неудачный обмен молчит — человек видел бы
+  пустую форму входа и `?code=` в адресе, без единого слова о причине.
+- На телефоне окно Google открывает `expo-web-browser`, возврат идёт по схеме
+  `notebook://auth-callback`, и обмен происходит сразу после закрытия окна.
+
+Перед тем как увести на Google, приложение тихо дёргает ссылку `/authorize` у
+Supabase. Рабочая настройка отвечает редиректом, сломанная — понятным JSON, который
+и превращается в сообщение на экране входа. Без этой проверки человек вместо ошибки
+увидел бы голый английский JSON на чужой странице.
+
+**На телефоне нужен development build.** В Expo Go схема приложения чужая
+(`exp://...`), и Expo прямо предупреждает, что OAuth там проверять не стоит. Соберите
+свой клиент: `npx expo run:android` / `npx expo run:ios` либо
+`eas build --profile development`.
+
+#### Почему не код из письма
+
+Вход по 6-значному коду (`signInWithOtp`) убран, потому что письмо почти никогда не доходит:
+
+- локальный Supabase **не отправляет письма наружу** — всё оседает во встроенном почтовике
+  Inbucket на <http://127.0.0.1:54324>;
+- облачный Supabase на встроенной почте шлёт письма **только участникам проекта** и с жёстким
+  лимитом в несколько штук в час.
+
+Чтобы вернуть вход по коду, нужен свой SMTP (Resend, Brevo, SendGrid) в
+Project Settings → Authentication → SMTP Settings — после этого письма пойдут на любые адреса.
 
 #### Пропустить вход на время разработки
 
-Если на каждый перезапуск вводить код из письма неудобно, можно временно отключить экран входа:
+Если вводить пароль на каждый перезапуск неудобно, можно временно отключить экран входа:
+в `.env` добавьте `EXPO_PUBLIC_DEV_SKIP_LOGIN=true`.
 
-1. В Supabase: Authentication → Settings → включите **Allow anonymous sign-ins**.
-2. В `.env` добавьте `EXPO_PUBLIC_DEV_SKIP_LOGIN=true`.
+Приложение само войдёт под фиксированным dev-аккаунтом `dev@notebook.local` (его создаёт
+[`supabase/seed.sql`](./supabase/seed.sql)) и сразу откроет «Неделю», минуя экран логина.
+Аккаунт настоящий, так что `auth.uid()` и RLS работают как обычно, а данные видны одинаково
+в любом браузере и вкладке. Чтобы вернуть обычный вход — уберите переменную или поставьте `false`.
 
-Приложение само создаст анонимную Supabase-сессию (настоящий `auth.uid()`, RLS работает как обычно) и сразу откроет «Неделю», минуя экран логина. Чтобы вернуть обычный вход — уберите переменную или поставьте `false`.
+**На публичный деплой эту переменную класть нельзя**: она пускает в приложение кого угодно.
+
+## Деплой веб-версии на Render
+
+Настройка лежит в [`render.yaml`](./render.yaml) — Render читает его сам
+(Blueprint), руками в панели ничего собирать не надо. Сборка: `npm ci &&
+npx expo export -p web`, результат — статика в `dist/`.
+
+`web.output = "static"` означает, что каждый экран собирается в свой файл
+(`dist/week.html`, `dist/login.html` и т.д.). Запрос приходит на `/week`, такого
+файла нет — поэтому в `render.yaml` для каждого роута прописан rewrite, а в конце
+общий фолбэк на `/index.html`. **Добавили новый экран в `app/` — добавьте и rewrite**,
+иначе прямая ссылка на него вернёт главную.
+
+Переменные окружения задаются в панели Render (в `render.yaml` они помечены
+`sync: false`, значений в репозитории нет):
+
+| Переменная | Значение |
+| --- | --- |
+| `EXPO_PUBLIC_SUPABASE_URL` | адрес облачного проекта Supabase |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | `anon`-ключ оттуда же |
+
+Всё, что начинается с `EXPO_PUBLIC_`, попадает прямо в бандл и видно любому
+посетителю. `anon`-ключ такой по задумке — доступ режет RLS. А вот
+`EXPO_PUBLIC_DEV_SKIP_LOGIN` и `EXPO_PUBLIC_OPENAI_API_KEY` на Render класть нельзя:
+первый пускает в приложение кого угодно, второй утечёт вместе с бандлом.
+
+После того как сайт поднялся, в облачном Supabase нужно разрешить ему вход
+(Authentication → URL Configuration): **Site URL** — адрес сайта, в **Redirect URLs** —
+`https://<ваш-сайт>.onrender.com/**`. Для входа через Google тот же адрес идёт в
+**Authorized JavaScript origins** в Google Cloud Console. Без этого вход возвращает
+не туда.
+
+Проверить сборку локально, не дожидаясь Render:
+
+```bash
+npx expo export -p web   # собрать в dist/
+npx expo serve           # раздать dist/ так же, как это сделает Render
+```
 
 ## Структура
 
@@ -67,7 +187,7 @@ npx expo start
 app/              экраны (Expo Router)
   _layout.tsx     провайдеры, корневой Stack
   index.tsx       редирект: сессия есть → /week, нет → /login
-  login.tsx       вход по email (OTP-код)
+  login.tsx       вход и регистрация по email + паролю, кнопка Google
   (app)/          защищённая группа — 5 разделов
     _layout.tsx   проверка сессии + AppShell (нижние вкладки / боковое меню)
     week.tsx, today.tsx, inbox.tsx, schedule.tsx, review.tsx, calendar.tsx
