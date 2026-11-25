@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import {
   Pressable,
@@ -48,6 +48,7 @@ const MARKS_AHEAD_DAYS = 60;
 export default function ChatScreen() {
   const colors = useColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const queryClient = useQueryClient();
 
   const todayKey = todayInAlmaty();
   const year = Number(todayKey.slice(0, 4));
@@ -132,6 +133,9 @@ export default function ChatScreen() {
     onSuccess: (answer) => {
       setChat((prev) => [...prev, { role: "assistant", text: answer }]);
       setError(null);
+      // Ответ мог прийти через инструменты, которые поменяли задачи, —
+      // перечитываем их везде, где они показаны (неделя, сегодня, входящие).
+      queryClient.invalidateQueries({ queryKey: qk.tasks });
     },
     onError: (e: Error) => setError(e.message),
   });

@@ -47,7 +47,7 @@ function taskLine(task: Task): string {
   const when = task.date ? formatDayLabel(task.date) : "без даты";
   const flags = [task.done ? "сделана" : null, task.is_main ? "главная задача дня" : null].filter(Boolean);
   const time = task.time ? `, ${formatTime(task.time)}` : "";
-  return `- ${task.title} (${when}${time}${flags.length ? ", " + flags.join(", ") : ""})`;
+  return `- [id:${task.id}] ${task.title} (${when}${time}${flags.length ? ", " + flags.join(", ") : ""})`;
 }
 
 export function buildSnapshot(input: SnapshotInput): string {
@@ -78,12 +78,12 @@ export function buildSnapshot(input: SnapshotInput): string {
         ? `На сегодня:\n${todayTasks.slice(0, LIMIT).map(taskLine).join("\n")}`
         : "На сегодня задач нет.",
       open.length > 0 ? `Открытые на неделе:\n${open.slice(0, LIMIT).map(taskLine).join("\n")}` : "",
-      input.inboxTasks.length > 0
-        ? `Во «Входящих» без даты: ${input.inboxTasks
+      input.inboxTasks.filter((t) => !t.done).length > 0
+        ? `Во «Входящих» без даты:\n${input.inboxTasks
             .filter((t) => !t.done)
             .slice(0, LIMIT)
-            .map((t) => t.title)
-            .join("; ")}`
+            .map(taskLine)
+            .join("\n")}`
         : "",
     ]
       .filter(Boolean)
